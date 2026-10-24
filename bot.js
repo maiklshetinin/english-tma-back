@@ -1,13 +1,22 @@
 import { Telegraf, Markup } from 'telegraf';
+import http from 'http';
 
 const token = process.env.BOT_TOKEN;
-// Укажи здесь ссылку на твой сайт на GitHub Pages
 const frontendUrl = 'https://maiklshetinin.github.io/english-tma/'; 
+const PORT = process.env.PORT || 3000;
 
 if (!token) {
   console.error('Error: BOT_TOKEN is not provided in environment variables!');
   process.exit(1);
 }
+
+// Поднимаем простой HTTP-сервер, чтобы Render видел открытый порт
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot is running and alive!\n');
+}).listen(PORT, () => {
+  console.log(`HTTP server is listening on port ${PORT}`);
+});
 
 const bot = new Telegraf(token);
 
