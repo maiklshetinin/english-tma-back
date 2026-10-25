@@ -30,7 +30,7 @@ const query = (c, filters = []) => ({
 
 export const db = {
   collection: (c) => ({
-    doc: (id) => mkRef(c, id),
+    doc: (id) => mkRef(c, id ?? `auto${++autoId}`),
     async add(d) { const ref = mkRef(c, `auto${++autoId}`); apply('set', ref, d); return ref },
     where: (f, op, v) => query(c).where(f, op, v),
   }),

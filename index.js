@@ -9,6 +9,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { verifyInitData, verifyWidget } from './telegram.js'
 import { makeLogin, fail } from './login.js'
 import { makeStudents } from './students.js'
+import { makeSchedule } from './schedule.js'
 
 const env = process.env
 const { BOT_TOKEN, BOT_USERNAME, APP_SHORT_NAME } = env
@@ -31,6 +32,7 @@ app.get('/', (_, res) => res.send('ok'))                  // для провер
 const wrap = (fn) => (req, res) => fn(req, res).catch(e => { e.status < 500 ? console.log(`  → ${e.status} ${e.message}`) : console.error(e); res.status(e.status || 500).json({ error: e.message || 'error' }) })
 const login = makeLogin({ db, auth, FieldValue, teacherIds: TEACHER_IDS })
 const students = makeStudents({ db, FieldValue })
+const schedule = makeSchedule({ db, FieldValue, tz: env.SCHEDULE_TZ || 'Europe/Warsaw' })      // часовой пояс, по которому считаются «эта» и «следующая» неделя
 
 app.post('/auth/telegram', wrap(async (req, res) => {
   const v = verifyInitData((req.headers.authorization || '').replace(/^tma /, ''), BOT_TOKEN)
@@ -70,9 +72,17 @@ app.post('/invites', requireUser, requireTeacher, wrap(async (req, res) => {    
 }))
 app.post('/students/:id/archive', requireUser, requireTeacher, wrap(async (req, res) => {                  // архив: скрыть, закрыть доступ, погасить приглашения
   await students.archive(req.params.id)
+  await schedule.dropStudent(req.params.id)                                                                 // и убрать из уроков текущей/следующей недели
   console.log(`  → архив: ученик ${req.params.id}`)
   res.json({ ok: true })
 }))
+
+// Расписание: две живые недели (текущая и следующая) и уроки в слотах. Урок = сущность с массивом учеников (группа — несколько).
+app.get('/schedule', requireUser, wrap(async (req, res) => res.json(await schedule.list(req.user))))      // преподаватель — всё, ученик — только свои уроки
+app.post('/lessons', requireUser, requireTeacher, wrap(async (req, res) => res.json(await schedule.create(req.body, req.user.uid))))   // { studentId | studentIds, date, hour }
+app.post('/lessons/swap', requireUser, requireTeacher, wrap(async (req, res) => { await schedule.swap(String(req.body?.a || ''), String(req.body?.b || '')); res.json({ ok: true }) }))
+app.post('/lessons/:id/move', requireUser, requireTeacher, wrap(async (req, res) => res.json(await schedule.move(req.params.id, req.body))))   // { date, hour }
+app.delete('/lessons/:id', requireUser, requireTeacher, wrap(async (req, res) => { await schedule.remove(req.params.id); res.json({ ok: true }) }))
 
 // Аватарка пользователя через Bot API (Mini App отдаёт фото только самого пользователя). Токен бота наружу не уходит.
 const tgApi = (m, q) => fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${m}?${new URLSearchParams(q)}`).then(r => r.json())
