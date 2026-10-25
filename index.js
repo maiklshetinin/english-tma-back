@@ -19,9 +19,14 @@ const auth = getAuth(), db = getFirestore()
 
 const app = express()
 app.use(cors({ origin: list(env.ALLOWED_ORIGIN) }), express.json({ limit: '10kb' }))
+app.use((req, res, next) => {                              // строка в логах на каждый запрос: метод, путь, код ответа, время
+  const t = Date.now()
+  res.on('finish', () => req.path !== '/' && console.log(`${req.method} ${req.path} ${res.statusCode} ${Date.now() - t}ms`))
+  next()
+})
 app.get('/', (_, res) => res.send('ok'))                  // для проверки Render и «будилки»
 
-const wrap = (fn) => (req, res) => fn(req, res).catch(e => { console.error(e); res.status(e.status || 500).json({ error: e.message || 'error' }) })
+const wrap = (fn) => (req, res) => fn(req, res).catch(e => { e.status < 500 ? console.log(`  → ${e.status} ${e.message}`) : console.error(e); res.status(e.status || 500).json({ error: e.message || 'error' }) })
 const fail = (status, message) => Object.assign(new Error(message), { status })
 
 // Вход: ищем пользователя; преподаватель — по TEACHER_IDS; ученик — только по одноразовому приглашению
@@ -42,6 +47,7 @@ async function login({ user: u, startParam }) {
     }
   })
   if (!role) throw fail(403, 'no access')
+  console.log(`  → вход: tg:${u.id} @${u.username || '-'} как ${role}`)
   // Данные профиля кладём в токен, чтобы фронту не нужен был отдельный запрос (лимит клеймов — 1000 байт)
   const token = await auth.createCustomToken(uid, { role, studentId, tgName: profile.name, tgUsername: profile.username, tgPhoto: profile.photoUrl })
   return { token }
