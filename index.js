@@ -64,6 +64,14 @@ app.post('/auth/telegram-widget', wrap(async (req, res) => {
   res.json(await login(v))
 }))
 
+// Проверка связи (кнопка в «Профиле»): пишет строку в логи Render и отвечает, кого узнал по токену
+app.post('/ping', wrap(async (req, res) => {
+  let who = 'аноним (токена нет или он недействителен)'
+  try { const u = await auth.verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, '')); who = `${u.uid} (${u.role})` } catch { /* остаётся аноним */ }
+  console.log(`  → PING от ${who}: ${String(req.body?.msg || '').slice(0, 100)}`)
+  res.json({ ok: true, who })
+}))
+
 // Дальше — запросы с Firebase ID-токеном (Authorization: Bearer …)
 const requireUser = async (req, res, next) => {
   try { req.user = await auth.verifyIdToken((req.headers.authorization || '').replace(/^Bearer /, '')); next() }
