@@ -20,7 +20,14 @@ New → Web Service → этот репозиторий, **Root Directory: `serv
 ## Маршруты
 - `POST /auth/telegram` — вход из мини-приложения (`Authorization: tma <initData>`)
 - `POST /auth/telegram-widget` — вход в браузере (данные Login Widget)
-- `POST /invites` — ссылка-приглашение `{ studentId }` (преподаватель)
+- `GET /students` — преподаватель: все активные ученики; ученик: только своя запись
+- `POST /students` — добавить ученика `{ name, level, packageSize }` и сразу получить ссылку-приглашение (преподаватель)
+- `POST /invites` — новая одноразовая ссылка для существующего ученика `{ studentId }` (преподаватель)
+- `POST /students/:id/archive` — архив ученика: скрывает запись, удаляет его `users/tg:<id>`, гасит неиспользованные приглашения (преподаватель)
 - `GET /avatar/:tgId`, `GET /sheets/csv?url=` — с `Authorization: Bearer <Firebase ID token>`
 
-Роли: преподаватель — тот, чей id в `TEACHER_IDS`; ученик — тот, кто открыл одноразовую ссылку-приглашение; остальным вход закрыт (403).
+Файлы: `index.js` (маршруты), `login.js` (вход и роли), `students.js` (ученики, приглашения, архив), `telegram.js` (проверка подписи). Тесты без Firebase (база в памяти): `npm install && node login.test.mjs && node students.test.mjs`.
+
+Сайт не обращается к Firestore напрямую — только через эти маршруты; правила Firestore закрывают базу от клиентов (`firestore.rules` в корне репозитория фронта).
+
+Роли: преподаватель — тот, чей id в `TEACHER_IDS`; ученик — тот, кто открыл одноразовую ссылку-приглашение на свою запись в `students`; остальным вход закрыт (403).

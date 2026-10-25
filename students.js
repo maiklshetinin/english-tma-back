@@ -1,0 +1,68 @@
+// Ученики и приглашения. Сайт НЕ ходит в Firestore напрямую: всё идёт через эти функции на сервере,
+// а доступ определяется ролью из проверенного токена. Тест: node students.test.mjs
+import crypto from 'node:crypto'
+import { fail } from './login.js'
+
+export const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+const COLORS = ['#ff4b4b', '#1cb0f6', '#ce82ff', '#58cc02', '#ff9600', '#2b70c9', '#ff86d0']
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// Что отдаём на сайт (без служебных полей)
+const pub = (id, x) => ({
+  id, name: x.name, level: x.level, color: x.color, username: x.username || '', streak: x.streak ?? 0, coins: x.coins ?? 0,
+  status: x.status || 'invited', tgId: x.tgId ?? null, photoUrl: x.photoUrl || '', payment: x.payment,
+})
+
+export function makeStudents({ db, FieldValue }) {
+  const col = () => db.collection('students')
+  const alive = () => col().where('archived', '==', false).get()
+
+  return {
+    // Преподаватель — все активные ученики; ученик — только своя запись, и только если она всё ещё привязана к его аккаунту
+    async list(user) {
+      if (user.role === 'teacher') return (await alive()).docs.map(d => pub(d.id, d.data()))
+      if (user.role === 'student' && user.studentId) {
+        const d = await col().doc(String(user.studentId)).get()
+        return d.exists && !d.get('archived') && `tg:${d.get('tgId')}` === user.uid ? [pub(d.id, d.data())] : []
+      }
+      return []
+    },
+
+    async create(input, by) {
+      const name = String(input?.name ?? '').trim()
+      const level = String(input?.level ?? 'A1')
+      const pack = Math.min(100, Math.max(1, Math.round(Number(input?.packageSize) || 8)))
+      if (!name || name.length > 40) throw fail(400, 'name required (1–40 chars)')
+      if (!LEVELS.includes(level)) throw fail(400, 'bad level')
+      const week = new Date(); week.setDate(week.getDate() + 7)
+      const data = {
+        name, level, color: COLORS[(await alive()).size % COLORS.length], status: 'invited', archived: false, tgId: null, username: '', photoUrl: '',
+        streak: 0, coins: 0, createdBy: by, createdAt: FieldValue.serverTimestamp(),
+        payment: { status: 'due', until: ymd(week), lessonsLeft: 0, packageSize: pack },
+      }
+      const ref = await col().add(data)
+      return pub(ref.id, data)
+    },
+
+    // Одноразовое приглашение для записи ученика
+    async invite(studentId, by) {
+      if (!/^[\w-]{1,64}$/.test(studentId)) throw fail(400, 'studentId required')
+      const st = await col().doc(studentId).get()
+      if (!st.exists || st.get('archived')) throw fail(404, 'student not found')
+      const code = crypto.randomBytes(12).toString('base64url')
+      await db.collection('invites').doc(code).set({ studentId, createdBy: by, createdAt: FieldValue.serverTimestamp() })
+      return code
+    },
+
+    // Архив: скрывает запись, закрывает аккаунту доступ, гасит неиспользованные приглашения
+    async archive(id) {
+      const ref = col().doc(id), st = await ref.get()
+      if (!st.exists) throw fail(404, 'student not found')
+      const batch = db.batch()
+      batch.update(ref, { archived: true, archivedAt: FieldValue.serverTimestamp() })
+      if (st.get('tgId')) batch.delete(db.collection('users').doc(`tg:${st.get('tgId')}`))
+      for (const d of (await db.collection('invites').where('studentId', '==', id).get()).docs) if (!d.get('usedBy')) batch.delete(d.ref)
+      await batch.commit()
+    },
+  }
+}

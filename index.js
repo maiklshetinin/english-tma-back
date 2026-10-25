@@ -7,6 +7,8 @@ import { initializeApp, cert } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { verifyInitData, verifyWidget } from './telegram.js'
+import { makeLogin, fail } from './login.js'
+import { makeStudents } from './students.js'
 
 const env = process.env
 const { BOT_TOKEN, BOT_USERNAME, APP_SHORT_NAME } = env
@@ -27,31 +29,8 @@ app.use((req, res, next) => {                              // строка в л
 app.get('/', (_, res) => res.send('ok'))                  // для проверки Render и «будилки»
 
 const wrap = (fn) => (req, res) => fn(req, res).catch(e => { e.status < 500 ? console.log(`  → ${e.status} ${e.message}`) : console.error(e); res.status(e.status || 500).json({ error: e.message || 'error' }) })
-const fail = (status, message) => Object.assign(new Error(message), { status })
-
-// Вход: ищем пользователя; преподаватель — по TEACHER_IDS; ученик — только по одноразовому приглашению
-async function login({ user: u, startParam }) {
-  const uid = `tg:${u.id}`, ref = db.collection('users').doc(uid)
-  const code = /^invite_([\w-]{8,64})$/.exec(startParam)?.[1]
-  const profile = { tgId: u.id, name: u.first_name || '', username: u.username || '', photoUrl: u.photo_url || '', lastLoginAt: FieldValue.serverTimestamp() }
-  let role = null, studentId = null
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref)
-    const inv = !snap.exists && code ? await tx.get(db.collection('invites').doc(code)) : null
-    if (TEACHER_IDS.includes(String(u.id))) { role = 'teacher'; tx.set(ref, { ...profile, role }, { merge: true }) }
-    else if (snap.exists) { role = snap.get('role'); studentId = snap.get('studentId') ?? null; tx.update(ref, profile) }
-    else if (inv?.exists && !inv.get('usedBy')) {
-      role = 'student'; studentId = inv.get('studentId')
-      tx.update(inv.ref, { usedBy: uid, usedAt: FieldValue.serverTimestamp() })
-      tx.set(ref, { ...profile, role, studentId, createdAt: FieldValue.serverTimestamp() })
-    }
-  })
-  if (!role) throw fail(403, 'no access')
-  console.log(`  → вход: tg:${u.id} @${u.username || '-'} как ${role}`)
-  // Данные профиля кладём в токен, чтобы фронту не нужен был отдельный запрос (лимит клеймов — 1000 байт)
-  const token = await auth.createCustomToken(uid, { role, studentId, tgName: profile.name, tgUsername: profile.username, tgPhoto: profile.photoUrl })
-  return { token }
-}
+const login = makeLogin({ db, auth, FieldValue, teacherIds: TEACHER_IDS })
+const students = makeStudents({ db, FieldValue })
 
 app.post('/auth/telegram', wrap(async (req, res) => {
   const v = verifyInitData((req.headers.authorization || '').replace(/^tma /, ''), BOT_TOKEN)
@@ -79,14 +58,20 @@ const requireUser = async (req, res, next) => {
 }
 const requireTeacher = (req, res, next) => (req.user.role === 'teacher' ? next() : res.status(403).json({ error: 'teacher only' }))
 
-// Ссылка-приглашение для ученика: открыв её, он привяжется к записи studentId
-app.post('/invites', requireUser, requireTeacher, wrap(async (req, res) => {
-  const studentId = Number(req.body?.studentId)
-  if (!Number.isInteger(studentId)) throw fail(400, 'studentId required')
-  const code = crypto.randomBytes(12).toString('base64url')
-  await db.collection('invites').doc(code).set({ studentId, createdBy: req.user.uid, createdAt: FieldValue.serverTimestamp() })
-  const base = APP_SHORT_NAME ? `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}` : `https://t.me/${BOT_USERNAME}`
-  res.json({ url: `${base}?startapp=invite_${code}` })
+// Ученики. Сайт не ходит в Firestore напрямую — только через эти маршруты; доступ определяется ролью в токене.
+const inviteUrl = (code) => `${APP_SHORT_NAME ? `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}` : `https://t.me/${BOT_USERNAME}`}?startapp=invite_${code}`
+app.get('/students', requireUser, wrap(async (req, res) => res.json(await students.list(req.user))))      // преподаватель — все, ученик — только он сам
+app.post('/students', requireUser, requireTeacher, wrap(async (req, res) => {                              // добавить ученика + сразу ссылка-приглашение
+  const student = await students.create(req.body, req.user.uid)
+  res.json({ student, url: inviteUrl(await students.invite(student.id, req.user.uid)) })
+}))
+app.post('/invites', requireUser, requireTeacher, wrap(async (req, res) => {                               // новая ссылка для существующего ученика (одноразовая)
+  res.json({ url: inviteUrl(await students.invite(String(req.body?.studentId || ''), req.user.uid)) })
+}))
+app.post('/students/:id/archive', requireUser, requireTeacher, wrap(async (req, res) => {                  // архив: скрыть, закрыть доступ, погасить приглашения
+  await students.archive(req.params.id)
+  console.log(`  → архив: ученик ${req.params.id}`)
+  res.json({ ok: true })
 }))
 
 // Аватарка пользователя через Bot API (Mini App отдаёт фото только самого пользователя). Токен бота наружу не уходит.
