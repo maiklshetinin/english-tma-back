@@ -1,13 +1,13 @@
-// Запуск: node login.test.mjs  (без Firebase — база имитируется в памяти)
+// Запуск: npx tsx login.test.ts  (без Firebase — база имитируется в памяти)
 import { makeLogin } from './login.js'
 
-import { store, db, FieldValue } from './fake-db.mjs'
-const auth = { createCustomToken: async (uid, claims) => JSON.stringify({ uid, ...claims }) }
+import { store, db, FieldValue } from './fake-db.js'
+const auth = { createCustomToken: async (uid: string, claims: object) => JSON.stringify({ uid, ...claims }) }
 const login = makeLogin({ db, auth, FieldValue, teacherIds: ['1'] })
 
 let bad = 0
-const ok = (name, c) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
-const tryLogin = async (id, startParam = '', extra = {}) => { try { return JSON.parse((await login({ user: { id, first_name: 'N' + id, username: 'u' + id, photo_url: 'p' + id, ...extra }, startParam })).token) } catch (e) { return { err: e.status } } }
+const ok = (name: string, c: unknown) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
+const tryLogin = async (id: number, startParam = '', extra: object = {}): Promise<any> => { try { return JSON.parse((await login({ user: { id, first_name: 'N' + id, username: 'u' + id, photo_url: 'p' + id, ...extra }, startParam })).token) } catch (e: any) { return { err: e.status } } }
 
 store.set('students/s1', { name: 'Маша', archived: false, status: 'invited', tgId: null })
 store.set('invites/inviteCodeAAAA', { studentId: 's1' })

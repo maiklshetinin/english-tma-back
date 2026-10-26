@@ -1,17 +1,18 @@
-// Запуск: node students.test.mjs  (без Firebase — база в памяти)
-import { store, db, FieldValue } from './fake-db.mjs'
+// Запуск: npx tsx students.test.ts  (без Firebase — база в памяти)
+import { store, db, FieldValue } from './fake-db.js'
 import { makeStudents } from './students.js'
+import type { TokenUser } from './types.js'
 
 const S = makeStudents({ db, FieldValue })
 let bad = 0
-const ok = (name, c) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
-const code = async (p) => { try { await p; return 200 } catch (e) { return e.status ?? 500 } }
-const teacher = { uid: 'tg:1', role: 'teacher' }
+const ok = (name: string, c: unknown) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
+const code = async (p: Promise<unknown>) => { try { await p; return 200 } catch (e: any) { return e.status ?? 500 } }
+const teacher: TokenUser = { uid: 'tg:1', role: 'teacher' }
 
 // --- создание ---
 ok('пустое имя → 400', (await code(S.create({ name: '  ' }, 'tg:1'))) === 400)
 ok('имя длиннее 40 → 400', (await code(S.create({ name: 'x'.repeat(41) }, 'tg:1'))) === 400)
-ok('неверный уровень → 400', (await code(S.create({ name: 'Маша', level: 'Z9' }, 'tg:1'))) === 400)
+ok('неверный уровень → 400', (await code(S.create({ name: 'Маша', level: 'Z9' as any }, 'tg:1'))) === 400)
 const masha = await S.create({ name: '  Маша ', level: 'A2', packageSize: 8 }, 'tg:1')
 ok('создан: имя обрезано, статус «ждёт приглашения», не в архиве', masha.name === 'Маша' && masha.level === 'A2' && masha.status === 'invited' && store.get(`students/${masha.id}`).archived === false)
 ok('создан: tgId пуст, оплата «ждёт», пакет 8', masha.tgId === null && masha.payment.status === 'due' && masha.payment.packageSize === 8)
@@ -26,7 +27,7 @@ ok('преподаватель видит всех активных', list.lengt
 
 // --- привязка ученика (как после входа по ссылке) ---
 store.set(`students/${masha.id}`, { ...store.get(`students/${masha.id}`), tgId: 10, status: 'active' })
-const mUser = { uid: 'tg:10', role: 'student', studentId: masha.id }
+const mUser: TokenUser = { uid: 'tg:10', role: 'student', studentId: masha.id }
 list = await S.list(mUser)
 ok('ученик видит только свою запись', list.length === 1 && list[0].id === masha.id)
 ok('чужой studentId в токене не даёт чужих данных', (await S.list({ uid: 'tg:10', role: 'student', studentId: big.id })).length === 0)

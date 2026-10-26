@@ -1,17 +1,18 @@
-// Запуск: node schedule.test.mjs  (без Firebase — база в памяти)
-import { store, db, FieldValue } from './fake-db.mjs'
+// Запуск: npx tsx schedule.test.ts  (без Firebase — база в памяти)
+import { store, db, FieldValue } from './fake-db.js'
 import { makeStudents } from './students.js'
+import type { TokenUser } from './types.js'
 import { makeSchedule, weekStartOf, addDays, todayIn } from './schedule.js'
 
 let bad = 0
-const ok = (name, c) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
-const code = async (p) => { try { await p; return 200 } catch (e) { return e.status ?? 500 } }
+const ok = (name: string, c: unknown) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
+const code = async (p: Promise<unknown>) => { try { await p; return 200 } catch (e: any) { return e.status ?? 500 } }
 
 // Сегодня — воскресенье 25.10.2026 (Варшава), поэтому текущая неделя = 19–25 окт, следующая = 26 окт – 1 ноя
 let clock = new Date('2026-10-25T12:00:00Z')
 const S = makeSchedule({ db, FieldValue, tz: 'Europe/Warsaw', now: () => clock })
 const ST = makeStudents({ db, FieldValue })
-const teacher = { uid: 'tg:1', role: 'teacher' }
+const teacher: TokenUser = { uid: 'tg:1', role: 'teacher' }
 const A = '2026-10-21', B = '2026-10-27', FAR = '2026-11-03'      // ср текущей, вт следующей, вторник через неделю
 
 // --- даты ---
@@ -83,7 +84,7 @@ ok('освободившийся слот можно занять снова', !
 
 // --- ученик видит только своё ---
 store.set(`students/${masha.id}`, { ...store.get(`students/${masha.id}`), tgId: 10, status: 'active' })
-const mUser = { uid: 'tg:10', role: 'student', studentId: masha.id }
+const mUser: TokenUser = { uid: 'tg:10', role: 'student', studentId: masha.id }
 v = await S.list(mUser)
 const mine = [...v.current.lessons, ...v.next.lessons]
 ok('ученик видит только уроки со своим участием', mine.length === 2 && mine.every(l => l.studentIds.length === 1 && l.studentIds[0] === masha.id))
