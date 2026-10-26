@@ -24,7 +24,7 @@ New → Web Service → этот репозиторий, **Root Directory: `serv
 - `POST /auth/telegram` — вход из мини-приложения (`Authorization: tma <initData>`)
 - `POST /auth/telegram-widget` — вход в браузере (данные Login Widget)
 - `GET /students` — преподаватель: все активные ученики; ученик: только своя запись
-- `POST /students` — добавить ученика `{ name, level, packageSize }` и сразу получить ссылку-приглашение (преподаватель)
+- `POST /students` — добавить ученика `{ name, level, packageSize, username?, price? }` и сразу получить ссылку-приглашение (преподаватель). `username` — ник в Telegram (с `@` или ссылкой `t.me/…`): по нему сервер берёт фото с публичной страницы `t.me/<ник>` (`tgphoto.ts`; фото есть, только если оно открыто в приватности Telegram). `price` — цена урока, 0–100000
 - `POST /invites` — новая одноразовая ссылка для существующего ученика `{ studentId }` (преподаватель)
 - `POST /students/:id/archive` — архив ученика: скрывает запись, удаляет его `users/tg:<id>`, гасит неиспользованные приглашения (преподаватель)
 - `GET /schedule` — две живые недели `{ current: { weekStart, lessons }, next: {…} }`; преподаватель — все уроки, ученик — только свои

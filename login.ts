@@ -38,13 +38,13 @@ export function makeLogin({ db, auth, FieldValue, teacherIds }: LoginDeps) {
         if (r === 'student' && !alive) return             // ученика архивировали — вход закрыт
         role = r; studentId = snap.get('studentId') ?? null
         tx.update(ref, profile)
-        if (r === 'student') tx.update(stRef!, { photoUrl: profile.photoUrl, username: profile.username, lastLoginAt: ts })
+        if (r === 'student') tx.update(stRef!, { photoUrl: profile.photoUrl || st!.get('photoUrl') || '', username: profile.username, lastLoginAt: ts })
       } else if (useInvite && alive) {
         role = 'student'; studentId = String(sid)
         const old = st.get('tgId')                         // запись уже была привязана к другому аккаунту → старый теряет доступ
         if (old && old !== u.id) tx.delete(db.collection('users').doc(`tg:${old}`))
         tx.update(inv.ref, { usedBy: uid, usedAt: ts })
-        tx.update(stRef!, { tgId: u.id, status: 'active', photoUrl: profile.photoUrl, username: profile.username, joinedAt: ts })
+        tx.update(stRef!, { tgId: u.id, status: 'active', photoUrl: profile.photoUrl || st.get('photoUrl') || '', username: profile.username, joinedAt: ts })
         tx.set(ref, { ...profile, role, studentId, createdAt: ts })
       }
     })

@@ -9,6 +9,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { verifyInitData, verifyWidget } from './telegram.js'
 import { makeLogin, fail } from './login.js'
 import { makeStudents } from './students.js'
+import { photoByUsername } from './tgphoto.js'
 import { makeSchedule } from './schedule.js'
 import { makeContent } from './content.js'
 import { makeSrs } from './srs.js'
@@ -40,7 +41,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHan
   fn(req, res).catch((e) => { e.status < 500 ? console.log(`  → ${e.status} ${e.message}`) : console.error(e); res.status(e.status || 500).json({ error: e.message || 'error' }) })
 }
 const login = makeLogin({ db, auth, FieldValue, teacherIds: TEACHER_IDS })
-const students = makeStudents({ db, FieldValue })
+const students = makeStudents({ db, FieldValue, photoByUsername })
 const content = makeContent({ db, FieldValue })
 const srs = makeSrs({ db, FieldValue })
 const schedule = makeSchedule({ db, FieldValue, tz: env.SCHEDULE_TZ || 'Europe/Warsaw' })      // часовой пояс, по которому считаются «эта» и «следующая» неделя

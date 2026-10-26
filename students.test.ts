@@ -3,7 +3,8 @@ import { store, db, FieldValue } from './fake-db.js'
 import { makeStudents } from './students.js'
 import type { TokenUser } from './types.js'
 
-const S = makeStudents({ db, FieldValue })
+const asked: string[] = []
+const S = makeStudents({ db, FieldValue, photoByUsername: async (u) => { asked.push(u); if (u === 'boom_user') throw new Error('net'); return u === 'no_photo' ? '' : `https://cdn4.telesco.pe/file/${u}.jpg` } })
 let bad = 0
 const ok = (name: string, c: unknown) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
 const code = async (p: Promise<unknown>) => { try { await p; return 200 } catch (e: any) { return e.status ?? 500 } }
@@ -21,9 +22,20 @@ ok('размер пакета ограничен 100', big.payment.packageSize =
 ok('цвета у соседних учеников разные', masha.color !== big.color)
 ok('служебных полей (createdBy, archived) в ответе нет', !('createdBy' in masha) && !('archived' in masha))
 
+// --- ник и цена ---
+const ann = await S.create({ name: 'Аня', username: ' https://t.me/Anna_En?start=1 ', price: 120.456 }, 'tg:1')
+ok('ник очищен от ссылки и @, фото найдено по нику', ann.username === 'Anna_En' && ann.photoUrl === 'https://cdn4.telesco.pe/file/Anna_En.jpg' && asked.at(-1) === 'Anna_En')
+ok('цена округлена до копеек и лежит в записи', ann.price === 120.46 && store.get(`students/${ann.id}`).price === 120.46)
+ok('ник с @ принимается', (await S.create({ name: 'Б', username: '@bob_en' }, 'tg:1')).username === 'bob_en')
+ok('без ника и цены: пустые значения, фото не ищем', masha.username === '' && masha.photoUrl === '' && masha.price === 0 && !asked.includes(''))
+ok('ник без фото → запись создана, фото пустое', (await S.create({ name: 'В', username: 'no_photo' }, 'tg:1')).photoUrl === '')
+ok('сбой поиска фото не мешает созданию', (await S.create({ name: 'Г', username: 'boom_user' }, 'tg:1')).username === 'boom_user')
+ok('кривой ник → 400', (await code(S.create({ name: 'Д', username: 'a b' }, 'tg:1'))) === 400 && (await code(S.create({ name: 'Д', username: 'ab' }, 'tg:1'))) === 400)
+ok('отрицательная или нечисловая цена → 400', (await code(S.create({ name: 'Е', price: -1 }, 'tg:1'))) === 400 && (await code(S.create({ name: 'Е', price: 'abc' as any }, 'tg:1'))) === 400)
+
 // --- список: преподаватель ---
 let list = await S.list(teacher)
-ok('преподаватель видит всех активных', list.length === 2)
+ok('преподаватель видит всех активных', list.length === 6 && list.find(x => x.id === ann.id)?.price === 120.46)
 
 // --- привязка ученика (как после входа по ссылке) ---
 store.set(`students/${masha.id}`, { ...store.get(`students/${masha.id}`), tgId: 10, status: 'active' })

@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import type { Firestore, FieldValue as FV } from 'firebase-admin/firestore'
 import { fail } from './login.js'
 import { LEVELS } from './types.js'
+import { cleanUsername, isUsername } from './tgphoto.js'
 import type { Level, Student, StudentDoc, StudentInput, TokenUser } from './types.js'
 
 export { LEVELS }
@@ -13,12 +14,15 @@ const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 // Что отдаём на сайт (без служебных полей)
 const pub = (id: string, x: StudentDoc): Student => ({
   id, name: x.name, level: x.level, color: x.color, username: x.username || '', streak: x.streak ?? 0, coins: x.coins ?? 0,
-  status: x.status || 'invited', tgId: x.tgId ?? null, photoUrl: x.photoUrl || '', payment: x.payment,
+  status: x.status || 'invited', tgId: x.tgId ?? null, photoUrl: x.photoUrl || '', price: x.price ?? 0, payment: x.payment,
 })
 
-export interface StudentsDeps { db: Firestore; FieldValue: Pick<typeof FV, 'serverTimestamp'> }
+export interface StudentsDeps {
+  db: Firestore; FieldValue: Pick<typeof FV, 'serverTimestamp'>
+  photoByUsername?: (username: string) => Promise<string>      // фото по нику из Telegram; не передан — фото не ищем
+}
 
-export function makeStudents({ db, FieldValue }: StudentsDeps) {
+export function makeStudents({ db, FieldValue, photoByUsername }: StudentsDeps) {
   const col = () => db.collection('students')
   const alive = () => col().where('archived', '==', false).get()
 
@@ -39,9 +43,16 @@ export function makeStudents({ db, FieldValue }: StudentsDeps) {
       const pack = Math.min(100, Math.max(1, Math.round(Number(input?.packageSize) || 8)))
       if (!name || name.length > 40) throw fail(400, 'name required (1–40 chars)')
       if (!(LEVELS as readonly string[]).includes(level)) throw fail(400, 'bad level')
+      const username = cleanUsername(input?.username)
+      if (username && !isUsername(username)) throw fail(400, 'bad username')
+      const rawPrice = input?.price == null || (input.price as unknown) === '' ? 0 : Number(input.price)
+      if (!Number.isFinite(rawPrice) || rawPrice < 0 || rawPrice > 100000) throw fail(400, 'bad price')
+      const price = Math.round(rawPrice * 100) / 100
+      let photoUrl = ''
+      if (username && photoByUsername) { try { photoUrl = await photoByUsername(username) } catch { /* нет сети или Telegram не ответил — просто без фото */ } }
       const week = new Date(); week.setDate(week.getDate() + 7)
       const data: StudentDoc = {
-        name, level, color: COLORS[(await alive()).size % COLORS.length], status: 'invited', archived: false, tgId: null, username: '', photoUrl: '',
+        name, level, color: COLORS[(await alive()).size % COLORS.length], status: 'invited', archived: false, tgId: null, username, photoUrl, price,
         streak: 0, coins: 0, createdBy: by, createdAt: FieldValue.serverTimestamp(),
         payment: { status: 'due', until: ymd(week), lessonsLeft: 0, packageSize: pack },
       }

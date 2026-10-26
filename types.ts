@@ -52,6 +52,7 @@ export interface StudentDoc {
   tgId: number | null          // Telegram id, пока null — ученик ещё не открыл приглашение
   username: string
   photoUrl: string
+  price: number                // цена одного урока, 0 — не указана
   streak: number
   coins: number
   payment: Payment
@@ -74,6 +75,7 @@ export interface Student {
   status: StudentStatus
   tgId: number | null
   photoUrl: string
+  price: number                // цена одного урока, 0 — не указана
   payment: Payment
 }
 
@@ -81,6 +83,8 @@ export interface StudentInput {            // POST /students
   name: string
   level?: Level                            // по умолчанию 'A1'
   packageSize?: number                     // по умолчанию 8
+  username?: string                        // ник в Telegram (можно с @ или ссылкой t.me/…); по нему сразу берём фото
+  price?: number                           // цена урока, 0–100000
 }
 
 // ───────────────────────── Приглашение · коллекция invites ─────────────────────────
