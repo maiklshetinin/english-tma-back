@@ -4,7 +4,8 @@ import { makeStudents } from './students.js'
 import type { TokenUser } from './types.js'
 
 const asked: string[] = []
-const S = makeStudents({ db, FieldValue, photoByUsername: async (u) => { asked.push(u); if (u === 'boom_user') throw new Error('net'); return u === 'no_photo' ? '' : `https://cdn4.telesco.pe/file/${u}.jpg` } })
+let nowMs = new Date('2026-10-26T10:05:00+01:00').getTime()      // Варшава, CET: 10:05
+const S = makeStudents({ db, FieldValue, now: () => new Date(nowMs), tz: 'Europe/Warsaw', photoByUsername: async (u) => { asked.push(u); if (u === 'boom_user') throw new Error('net'); return u === 'no_photo' ? '' : `https://cdn4.telesco.pe/file/${u}.jpg` } })
 let bad = 0
 const ok = (name: string, c: unknown) => { console.log(c ? 'PASS' : 'FAIL', name); if (!c) bad++ }
 const code = async (p: Promise<unknown>) => { try { await p; return 200 } catch (e: any) { return e.status ?? 500 } }
@@ -32,6 +33,37 @@ ok('ник без фото → запись создана, фото пусто�
 ok('сбой поиска фото не мешает созданию', (await S.create({ name: 'Г', username: 'boom_user' }, 'tg:1')).username === 'boom_user')
 ok('кривой ник → 400', (await code(S.create({ name: 'Д', username: 'a b' }, 'tg:1'))) === 400 && (await code(S.create({ name: 'Д', username: 'ab' }, 'tg:1'))) === 400)
 ok('отрицательная или нечисловая цена → 400', (await code(S.create({ name: 'Е', price: -1 }, 'tg:1'))) === 400 && (await code(S.create({ name: 'Е', price: 'abc' as any }, 'tg:1'))) === 400)
+
+// --- ник у созданного ученика ---
+const noNick = await S.create({ name: 'Лена' }, 'tg:1')
+const withNick = await S.setUsername(noNick.id, '@Lena_En')
+ok('ник добавлен позже: запись и ответ обновлены, фото найдено', withNick.username === 'Lena_En' && withNick.photoUrl === 'https://cdn4.telesco.pe/file/Lena_En.jpg' && store.get(`students/${noNick.id}`).username === 'Lena_En')
+ok('смена ника на ник без фото сбрасывает старое фото', (await S.setUsername(noNick.id, 'no_photo')).photoUrl === '')
+ok('сбой поиска при смене ника оставляет прежнее фото', (await S.setUsername(noNick.id, 'Lena_En'), (await S.setUsername(noNick.id, 'boom_user')).photoUrl === 'https://cdn4.telesco.pe/file/Lena_En.jpg'))
+ok('setUsername: кривой ник → 400, мусорный id → 400, нет ученика → 404', (await code(S.setUsername(noNick.id, 'a b'))) === 400 && (await code(S.setUsername('../x', 'lena_en'))) === 400 && (await code(S.setUsername('nope', 'lena_en'))) === 404)
+store.set(`students/${noNick.id}`, { ...store.get(`students/${noNick.id}`), tgId: 77 })
+ok('ученик уже вошёл → 409, ник не менялся', (await code(S.setUsername(noNick.id, 'other_nick'))) === 409 && store.get(`students/${noNick.id}`).username === 'boom_user')
+await S.archive(noNick.id)
+
+// --- смена цены: прошедшие уроки не меняются ---
+const pr = await S.create({ name: 'Паша', price: 100 }, 'tg:1')
+ok('при создании в истории одна запись «с самого начала»', JSON.stringify(pr.priceHistory) === JSON.stringify([{ from: '', price: 100 }]))
+const pr2 = await S.setPrice(pr.id, 150)
+ok('цена сменена: текущая новая, новая запись действует со следующего часа, старая осталась', pr2.price === 150 && JSON.stringify(pr2.priceHistory) === JSON.stringify([{ from: '', price: 100 }, { from: '2026-10-26T11', price: 150 }]))
+ok('в базе то же самое', store.get(`students/${pr.id}`).price === 150 && store.get(`students/${pr.id}`).priceHistory.length === 2)
+ok('та же цена повторно — истории не прибавляется', (await S.setPrice(pr.id, 150)).priceHistory.length === 2)
+ok('вторая правка в тот же час заменяет запись этого часа, а не копит, старая цена цела', JSON.stringify((await S.setPrice(pr.id, 200)).priceHistory) === JSON.stringify([{ from: '', price: 100 }, { from: '2026-10-26T11', price: 200 }]))
+nowMs = new Date('2026-10-26T23:30:00+01:00').getTime()
+ok('поздно вечером новая цена начинается с полуночи следующего дня', (await S.setPrice(pr.id, 250)).priceHistory.at(-1)!.from === '2026-10-27T00')
+nowMs = new Date('2026-10-26T10:05:00+01:00').getTime()
+const legacy = await S.create({ name: 'Старая запись', price: 90 }, 'tg:1')
+const { priceHistory: _drop, ...noHist } = store.get(`students/${legacy.id}`); store.set(`students/${legacy.id}`, noHist)
+ok('у записи без истории список отдаёт прежнюю цену «всегда»', JSON.stringify((await S.list(teacher)).find(x => x.id === legacy.id)!.priceHistory) === JSON.stringify([{ from: '', price: 90 }]))
+const lg2 = await S.setPrice(legacy.id, 120)
+ok('запись без истории: прошлое сохраняется по старой цене', JSON.stringify(lg2.priceHistory) === JSON.stringify([{ from: '', price: 90 }, { from: '2026-10-26T11', price: 120 }]))
+ok('цена: кривая → 400, мусорный id → 400, нет ученика → 404', (await code(S.setPrice(pr.id, -5))) === 400 && (await code(S.setPrice(pr.id, 'abc'))) === 400 && (await code(S.setPrice(pr.id, 1e9))) === 400 && (await code(S.setPrice('../x', 10))) === 400 && (await code(S.setPrice('nope', 10))) === 404)
+await S.archive(pr.id); await S.archive(legacy.id)
+ok('архивному цену не меняем → 404', (await code(S.setPrice(pr.id, 10))) === 404)
 
 // --- список: преподаватель ---
 let list = await S.list(teacher)

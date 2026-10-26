@@ -41,7 +41,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHan
   fn(req, res).catch((e) => { e.status < 500 ? console.log(`  → ${e.status} ${e.message}`) : console.error(e); res.status(e.status || 500).json({ error: e.message || 'error' }) })
 }
 const login = makeLogin({ db, auth, FieldValue, teacherIds: TEACHER_IDS })
-const students = makeStudents({ db, FieldValue, photoByUsername })
+const students = makeStudents({ db, FieldValue, photoByUsername, tz: env.SCHEDULE_TZ || 'Europe/Warsaw' })
 const content = makeContent({ db, FieldValue })
 const srs = makeSrs({ db, FieldValue })
 const schedule = makeSchedule({ db, FieldValue, tz: env.SCHEDULE_TZ || 'Europe/Warsaw' })      // часовой пояс, по которому считаются «эта» и «следующая» неделя
@@ -82,6 +82,8 @@ app.post('/students', requireUser, requireTeacher, wrap(async (req, res) => {   
 app.post('/invites', requireUser, requireTeacher, wrap(async (req, res) => {                               // новая ссылка для существующего ученика (одноразовая)
   res.json({ url: inviteUrl(await students.invite(String(req.body?.studentId || ''), req.user.uid)) } satisfies InviteResponse)
 }))
+app.post('/students/:id/username', requireUser, requireTeacher, wrap(async (req, res) => res.json(await students.setUsername(req.params.id, req.body?.username))))   // { username } → обновлённый ученик (с фото по нику)
+app.post('/students/:id/price', requireUser, requireTeacher, wrap(async (req, res) => res.json(await students.setPrice(req.params.id, req.body?.price))))   // { price } → обновлённый ученик; прошедшие уроки по старой цене
 app.post('/students/:id/archive', requireUser, requireTeacher, wrap(async (req, res) => {                  // архив: скрыть, закрыть доступ, погасить приглашения
   await students.archive(req.params.id)
   await schedule.dropStudent(req.params.id)                                                                 // и убрать из уроков текущей/следующей недели

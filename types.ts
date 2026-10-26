@@ -43,6 +43,12 @@ export interface Payment {
   packageSize: number          // 1–100
 }
 
+/** Смена цены урока. Урок стоит столько, сколько стояла цена на его время: берётся последняя запись, у которой from ≤ 'YYYY-MM-DDTHH' урока. */
+export interface PriceChange {
+  from: string                 // '' — с самого начала; иначе 'YYYY-MM-DDTHH' (дата и час по SCHEDULE_TZ, с которого действует цена)
+  price: number
+}
+
 export interface StudentDoc {
   name: string                 // 1–40 символов
   level: Level
@@ -52,7 +58,8 @@ export interface StudentDoc {
   tgId: number | null          // Telegram id, пока null — ученик ещё не открыл приглашение
   username: string
   photoUrl: string
-  price: number                // цена одного урока, 0 — не указана
+  price: number                // текущая цена одного урока, 0 — не указана
+  priceHistory?: PriceChange[] // история цен по возрастанию from; у старых записей её нет — тогда цена одна и та же всегда
   streak: number
   coins: number
   payment: Payment
@@ -75,7 +82,8 @@ export interface Student {
   status: StudentStatus
   tgId: number | null
   photoUrl: string
-  price: number                // цена одного урока, 0 — не указана
+  price: number                // текущая цена одного урока, 0 — не указана
+  priceHistory: PriceChange[]  // по ней считается цена каждого урока (src/utils/price.ts): прошедшие уроки не пересчитываются
   payment: Payment
 }
 
